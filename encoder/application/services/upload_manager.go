@@ -68,32 +68,32 @@ func (vu *VideoUpload) loadPaths() error {
 
 func (vu *VideoUpload) ProcessUpload(concurrency int, doneUpload chan string) error {
 
-	in := make(chan int, runtime.NumCPU())
+	in := make(chan int, runtime.NumCPU()) // Qual o arquivo baseado na posição do slice paths
 	returnChannel := make(chan string)
 
-	err := vu.loadPaths()
+	err := vu.loadPaths() //carregas todos os paths
 	if err != nil {
 		return err
 	}
 
-	uploadClient, ctx, err := getClientUpload()
+	uploadClient, ctx, err := getClientUpload() //Pegar o client do google cloud, e o context
 	if err != nil {
 		return err
 	}
 
-	for process := 0; process < concurrency; process++ {
-		go vu.uploadWorker(in, returnChannel, uploadClient, ctx)
+	for process := 0; process < concurrency; process++ { //Iniciar diversas rotinas de acordo com a concurrency
+		go vu.uploadWorker(in, returnChannel, uploadClient, ctx) //Ficará lendo o canal in, e quando tiver algo, vai chamar o uploadWorker
 	}
 
 	go func() {
-		for x := 0; x < len(vu.Paths); x++ {
+		for x := 0; x < len(vu.Paths); x++ { //Percorrer todos os paths, e atribui a posição do slice no canal in
 			in <- x
 		}
 		close(in)
 	}()
 
-	for r := range returnChannel {
-		if r != "" {
+	for r := range returnChannel { //Lendo o canal returnChannel, a cada upload que retornar
+		if r != "" { //Caso tenha dado erro, adiciona a message no doneUpload e para toda a execução
 			doneUpload <- r
 			break
 		}
@@ -103,14 +103,14 @@ func (vu *VideoUpload) ProcessUpload(concurrency int, doneUpload chan string) er
 
 func (vu *VideoUpload) uploadWorker(in <-chan int, returnChannel chan string, uploadClient *storage.Client, ctx context.Context) {
 
-	for x := range in {
-		err := vu.UploadObject(vu.Paths[x], uploadClient, ctx)
+	for x := range in { //Lendo o channel in, e atribuindo a posição do slice paths
+		err := vu.UploadObject(vu.Paths[x], uploadClient, ctx) //Fazendo o upload do arquivo
 		if err != nil {
 			vu.Errors = append(vu.Errors, vu.Paths[x])
 			log.Printf("error during the upload: %v. error: %v", vu.Paths[x], err)
-			returnChannel <- err.Error()
+			returnChannel <- err.Error() //Se der erro, retorna o erro no channel returnChannel
 		}
-		returnChannel <- ""
+		returnChannel <- "" //Se não der erro, retorna uma string vazia no channel returnChannel
 	}
 
 	returnChannel <- "upload completed"
