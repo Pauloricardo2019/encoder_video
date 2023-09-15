@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/streadway/amqp"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -15,6 +16,8 @@ type JobWorkerResult struct {
 	Message *amqp.Delivery
 	Error   error
 }
+
+var mu = &sync.Mutex{}
 
 func JobWorker(messageChannel chan amqp.Delivery, returnChannel chan JobWorkerResult, jobService JobService, job domain.Job, workerID int) {
 
@@ -25,21 +28,23 @@ func JobWorker(messageChannel chan amqp.Delivery, returnChannel chan JobWorkerRe
 			returnChannel <- returnJobResult(domain.Job{}, message, err)
 			continue
 		}
-
+		mu.Lock()
 		err = json.Unmarshal(message.Body, &jobService.VideoService.Video)
 		if err != nil {
 			returnChannel <- returnJobResult(domain.Job{}, message, err)
 			continue
 		}
 		jobService.VideoService.Video.ID = uuid.New().String()
-
+		mu.Unlock()
 		err = jobService.VideoService.Video.Validate()
 		if err != nil {
 			returnChannel <- returnJobResult(domain.Job{}, message, err)
 			continue
 		}
 
+		mu.Lock()
 		err = jobService.VideoService.InsertVideo()
+		mu.Unlock()
 		if err != nil {
 			returnChannel <- returnJobResult(domain.Job{}, message, err)
 			continue
@@ -51,7 +56,9 @@ func JobWorker(messageChannel chan amqp.Delivery, returnChannel chan JobWorkerRe
 		job.Status = "STARTING"
 		job.CreatedAt = time.Now()
 
+		mu.Lock()
 		_, err = jobService.JobRepository.Insert(&job)
+		mu.Unlock()
 		if err != nil {
 			returnChannel <- returnJobResult(domain.Job{}, message, err)
 			continue
